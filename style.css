@@ -1,0 +1,33 @@
+:root { --bg: #14122b; --card: #211e46; --ink: #f4f1ff; --accent: #F0E442; --blue: #56B4E9; --muted: #b9b4e0; }
+* { box-sizing: border-box; }
+body { margin: 0; min-height: 100vh; background: var(--bg); color: var(--ink); font: 18px/1.5 system-ui, sans-serif; display: grid; place-items: center; padding: 16px; }
+#app { width: 100%; max-width: 720px; }
+.card { background: var(--card); border-radius: 20px; padding: 28px; }
+.center { text-align: center; }
+h1 { font-size: 2.6rem; margin: 0; color: var(--accent); }
+h2, h3 { margin: .4em 0; }
+.sub { color: var(--muted); margin: 0 0 1em; }
+.big { font-size: 3rem; font-weight: 800; margin: .2em 0; color: var(--accent); }
+label { display: flex; justify-content: space-between; align-items: center; margin: 12px 0; gap: 12px; }
+.chk { justify-content: flex-start; }
+input, select { font: inherit; padding: 10px; border-radius: 10px; border: 2px solid var(--blue); background: var(--bg); color: var(--ink); }
+.pn { display: block; width: 100%; margin: 6px 0; }
+button { font: inherit; font-weight: 700; padding: 14px 22px; margin: 6px; border: 0; border-radius: 14px; background: var(--accent); color: #1a1730; cursor: pointer; min-height: 48px; }
+button.ghost { background: transparent; color: var(--ink); border: 2px solid var(--blue); }
+button:disabled { opacity: .35; cursor: default; }
+button:focus-visible { outline: 3px solid var(--blue); outline-offset: 2px; }
+.row { display: flex; flex-wrap: wrap; justify-content: center; margin-top: 12px; }
+.stage { position: relative; text-align: center; }
+.top { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; color: var(--muted); }
+.time { font-size: 2.4rem; font-weight: 800; color: var(--accent); }
+.time.low { color: #D55E00; }
+.sil { width: min(100%, 62vh); color: var(--accent); filter: drop-shadow(0 0 12px rgba(240, 228, 66, .35)); background: var(--card); border-radius: 20px; margin: 10px 0; }
+.bar { display: flex; flex-wrap: wrap; justify-content: center; gap: 4px; }
+.emo { font-size: 1.8rem; background: var(--card); width: 60px; height: 60px; padding: 0; margin: 2px; }
+.judge { position: absolute; inset: 0; background: rgba(20, 18, 43, .94); border-radius: 20px; display: grid; place-content: center; }
+.judge[hidden] { display: none; }
+.emos { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; }
+.emos span { background: var(--bg); padding: 4px 10px; border-radius: 20px; font-size: .9rem; }
+.float { position: fixed; bottom: 18%; font-size: 3rem; pointer-events: none; animation: rise 2s ease-out forwards; }
+@keyframes rise { to { transform: translateY(-50vh); opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .float { animation-duration: .01s; } }
