@@ -26,6 +26,12 @@ button:focus-visible { outline: 3px solid var(--blue); outline-offset: 2px; }
 .emo { font-size: 1.8rem; background: var(--card); width: 60px; height: 60px; padding: 0; margin: 2px; }
 .judge { position: absolute; inset: 0; background: rgba(20, 18, 43, .94); border-radius: 20px; display: grid; place-content: center; }
 .judge[hidden] { display: none; }
+.ai { display: flex; align-items: center; justify-content: center; gap: 12px; margin: 6px 0; }
+.ai canvas { width: 160px; border-radius: 12px; }
+.camprev { width: 100%; max-width: 420px; border-radius: 14px; }
+.meter { flex: 1; max-width: 260px; height: 16px; background: var(--bg); border-radius: 8px; overflow: hidden; }
+.meter i { display: block; height: 100%; width: 0; background: var(--blue); transition: width .15s; }
+.meter i.hit { background: #009E73; }
 .emos { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; }
 .emos span { background: var(--bg); padding: 4px 10px; border-radius: 20px; font-size: .9rem; }
 .float { position: fixed; bottom: 18%; font-size: 3rem; pointer-events: none; animation: rise 2s ease-out forwards; }
