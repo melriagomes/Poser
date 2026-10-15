@@ -15,11 +15,11 @@ function toggleFull() { document.fullscreenElement ? document.exitFullscreen() :
 
 // ---------- SILHOUETTE RENDERER (angles -> keypoints -> SVG) ----------
 function keypoints(p) {
-  const v = a => [Math.sin(a * Math.PI / 180), Math.cos(a * Math.PI / 180)];
-  const add = (a, b, k) => [a[0] + b[0] * k, a[1] + b[1] * k];
+  const sc = p.sc || 1, v = a => [Math.sin(a * Math.PI / 180), Math.cos(a * Math.PI / 180)];
+  const add = (a, b, k) => [a[0] + b[0] * k * sc, a[1] + b[1] * k * sc];
   const ln = (p.lean || 0) * Math.PI / 180, hip = p.at || [.5, .55], w = p.prof ? 0 : 1;
   const up = [Math.sin(ln), -Math.cos(ln)], side = [Math.cos(ln), Math.sin(ln)];
-  const neck = add(hip, up, .24), out = { hip, neck, head: add(neck, up, .085), w };
+  const neck = add(hip, up, .24), out = { hip, neck, head: add(neck, up, .085), w, sc };
   for (const s of ['l', 'r']) {
     const k = s === 'r' ? 1 : -1, arm = (p.a || {})[s] || [k * 8, k * 8], leg = (p.lg || {})[s] || [k * 4, k * 4];
     const sh = add(neck, side, k * .085 * w), el = add(sh, v(arm[0]), .15), wr = add(el, v(arm[1]), .14);
@@ -28,14 +28,18 @@ function keypoints(p) {
   }
   return out;
 }
-function figure(p) {
-  const k = keypoints(p), pts = a => a.map(q => q.join(',')).join(' ');
-  let s = `<line x1="${k.hip[0]}" y1="${k.hip[1]}" x2="${k.neck[0]}" y2="${k.neck[1]}" stroke-width="${k.w ? .13 : .1}"/>`;
-  s += `<circle cx="${k.head[0]}" cy="${k.head[1]}" r=".055" fill="currentColor" stroke="none"/>`;
+function parts(p) {
+  const k = keypoints(p), sc = k.sc, pts = a => a.map(q => q.join(',')).join(' ');
+  let s = `<line x1="${k.hip[0]}" y1="${k.hip[1]}" x2="${k.neck[0]}" y2="${k.neck[1]}" stroke-width="${(k.w ? .13 : .1) * sc}"/>`;
+  s += `<circle cx="${k.head[0]}" cy="${k.head[1]}" r="${.055 * sc}" fill="currentColor" stroke="none"/>`;
   for (const side of ['l', 'r']) {
-    s += `<polyline points="${pts(k[side].arm)}" stroke-width=".045"/><polyline points="${pts(k[side].leg)}" stroke-width=".06"/>`;
+    s += `<polyline points="${pts(k[side].arm)}" stroke-width="${.045 * sc}"/><polyline points="${pts(k[side].leg)}" stroke-width="${.06 * sc}"/>`;
   }
-  return `<svg viewBox="0 0 1 1" class="sil" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><g opacity=".85">${s}</g><g id="live"></g></svg>`;
+  return s;
+}
+function figure(p) {   // duo poses carry p.figs: two figures drawn at 80% size
+  const body = p.figs ? p.figs.map(f => parts({ sc: .8, ...f })).join('') : parts(p);
+  return `<svg viewBox="0 0 1 1" class="sil" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><g opacity=".85">${body}</g><g id="live"></g></svg>`;
 }
 
 // ---------- SCREENS ----------
@@ -47,9 +51,12 @@ function home() {
     <div><label>Mode <select id="mode"><option value="60">Classic (60s)</option><option value="25">Rapid Fire (25s)</option><option value="0">Chill (no timer)</option></select></label>
     <label>Hardest level <select id="diff"><option value="0">Easy</option><option value="1">Medium</option><option value="2" selected>Hard</option></select></label>
     <label class="chk"><input type="checkbox" id="safe" checked> Safe Mode (removes balance and floor-risk poses)</label>
-    <label class="chk"><input type="checkbox" id="seat"> Seated poses only</label></div></div>
+    <label class="chk"><input type="checkbox" id="seat"> Seated poses only</label>
+    <label>Play style <select id="style"><option value="1">Solo Poser</option><option value="2">Duo Posers (two pose together)</option></select></label>
+    <label class="chk"><input type="checkbox" id="split" checked> Split roles: each Describer controls one body zone</label>
+    <label class="chk"><input type="checkbox" id="wl" checked> Word limit: more players, fewer words each</label></div></div>
     <div class="row"><button class="bigbtn" onclick="start(true)">📷 Start with camera</button><button class="bigbtn alt" onclick="start(false)">Start without camera</button></div>
-    <p class="sub small">Camera mode reads a skeleton only. Nothing is recorded or uploaded.</p>
+    <p class="sub small">Camera mode reads a skeleton only. Nothing is recorded or uploaded. Camera judging works in Solo mode only.</p>
     <button class="ghost" onclick="rulebook(home)">How to play</button></section>`;
   ['Alex', 'Sam', 'Jo', 'Riley'].forEach(addP);
 }
@@ -62,6 +69,8 @@ function rulebook(back) {
     <li>Describers use <b>words only</b>: body parts and directions. No touching, no mimicking, no pose names.</li>
     <li>The Poser says "Locked!" (or anyone presses Lock). Describers judge: Match or Not yet. With the camera on, the game locks by itself when the pose is held.</li>
     <li>Match: level up, same Poser continues. Time runs out: the next player becomes Poser.</li>
+    <li><b>Split roles:</b> each Describer controls one body zone and stays silent about the rest. <b>Word limit:</b> the more Describers, the fewer words each may say per instruction (1 Describer: 12 words, 6 Describers: 3). Anyone can call a foul (−20 points).</li>
+    <li><b>Duo mode:</b> two Posers pose together, one on the left and one on the right as the Describers see them.</li>
     <li>Emojis give feedback only, never instructions. 🧘 triggers a 20-second Stretch Break.</li>
     <li>Safety: no jumping, flipping or forced balance on hard floors. Left and right are mirrored on purpose. Good luck!</li></ol>
     <h3>The 10 emojis</h3><p class="emos">${EMO.map(e => `<span>${e[0]} ${e[1]}</span>`).join('')}</p>
@@ -69,13 +78,14 @@ function rulebook(back) {
 }
 
 function start(cam) {
-  const names = [...document.querySelectorAll('.pn')].map(i => i.value.trim() || i.placeholder);
+  const names = [...document.querySelectorAll('.pn')].map(i => i.value.trim() || i.placeholder), duo = $('#style').value === '2';
   G = {
     players: names.map(n => ({ n })), limit: +$('#mode').value, max: +$('#diff').value, safe: $('#safe').checked,
-    seated: $('#seat').checked, cam, poser: 0, level: 1, rounds: 0, score: 0, used: [], stretch: false,
+    seated: $('#seat').checked, cam: cam && !duo, duo, split: $('#split').checked, wl: $('#wl').checked,
+    poser: 0, level: 1, rounds: 0, score: 0, used: [], stretch: false,
   };
   goFull();
-  if (cam) camSetup(); else ready('Get ready!');
+  if (G.cam) camSetup(); else ready(cam && duo ? 'Camera judging is Solo-only, so the Describers judge.' : 'Get ready!');
 }
 
 async function camSetup() {
@@ -99,7 +109,7 @@ async function camSetup() {
 
 function pick() {
   const tier = Math.min(G.max, Math.floor((G.level - 1) / 2));
-  const ok = p => (!G.safe || p.safe) && (!G.seated || p.seated);
+  const ok = p => (!G.safe || p.safe) && (!G.seated || p.seated) && (G.duo ? p.n === 2 : !p.n);
   let pool = POSES.filter(p => ok(p) && p.d === TIERS[tier] && !G.used.includes(p.id));
   if (!pool.length) pool = POSES.filter(p => ok(p) && TIERS.indexOf(p.d) <= tier && !G.used.includes(p.id));
   if (!pool.length) { G.used = []; pool = POSES.filter(p => ok(p) && TIERS.indexOf(p.d) <= tier); }
@@ -107,27 +117,50 @@ function pick() {
   G.used.push(p.id); return p;
 }
 
+// ---------- CONFLICT RULES: split roles + word limits ----------
+// Body zones by number of Describers (shuffled every round). Left/Right = the Poser's own left/right (= the screen's right/left).
+const ZONES = {
+  1: ['Everything'], 2: ['Arms', 'Legs, torso and head'], 3: ['Arms', 'Legs', 'Torso and head'],
+  4: ['Left arm', 'Right arm', 'Legs', 'Torso and head'], 5: ['Left arm', 'Right arm', 'Left leg', 'Right leg', 'Torso and head'],
+  6: ['Left arm', 'Right arm', 'Left leg', 'Right leg', 'Torso', 'Head'],
+};
+const WORDS = [0, 12, 8, 6, 5, 4, 3];   // max words per instruction, indexed by number of Describers
+const posers = () => G.duo ? [G.poser, (G.poser + 1) % G.players.length] : [G.poser];
+const posNames = () => posers().map(i => esc(G.players[i].n)).join(' + ');
+function makeRoster() {
+  const ps = posers(), ds = G.players.filter((_, i) => !ps.includes(i)), zones = ZONES[ds.length].slice().sort(() => Math.random() - .5);
+  G.roster = ds.map((p, k) => ({ n: p.n, z: G.split ? zones[k] : 'Anything' }));
+  G.W = G.wl ? WORDS[ds.length] : 0;
+}
+const rulesLine = () => ((G.split ? 'Only talk about your own body zone. ' : '') + (G.W ? `Max ${G.W} words each time you speak.` : '')) || 'Describe freely.';
+const chips = () => G.roster.map(r => `<span class="chip"><b>${esc(r.n)}</b>${G.split ? ' controls: ' + r.z : ''}</span>`).join('');
+
 function ready(msg) {
-  clearInterval(timer);
-  if (G.cam) Cam.preview = false;
-  const who = esc(G.players[G.poser].n);
-  app.innerHTML = `<section class="card center"><p class="sub">${msg}</p><h2>${who} is the Poser</h2>
-    <p>${who}: turn your back to the screen.<br>Describers: get ready to talk!</p><p class="big">Level ${G.level}</p>
+  clearInterval(timer); if (G.cam) Cam.preview = false; makeRoster();
+  const ps = posers();
+  app.innerHTML = `<section class="card center"><p class="sub">${msg}</p>
+    <h2>${posNames()} ${G.duo ? 'are the Posers' : 'is the Poser'}</h2>
+    <p>${G.duo ? `${esc(G.players[ps[0]].n)} stands on the LEFT and ${esc(G.players[ps[1]].n)} on the RIGHT, as the Describers see them.<br>` : ''}${G.duo ? 'Posers' : 'Poser'}: turn your back to the screen.</p>
+    <h3>Describers</h3><div class="chips">${chips()}</div>
+    <p class="rules">${rulesLine()}${G.split ? "<br><small>Left and right mean the Poser's own left and right (the screen's right is the Poser's left).</small>" : ''}</p>
+    <p class="big">Level ${G.level}</p>
     <div class="row"><button class="bigbtn" onclick="play()">Show pose and start</button><button class="ghost" onclick="home()">End game</button></div></section>`;
 }
 
 function play() {
   G.pose = pick(); G.t = G.limit;
-  app.innerHTML = `<section class="stage"><div class="top"><span>Poser: <b>${esc(G.players[G.poser].n)}</b></span><span>Level ${G.level}</span>
-    <span>Score ${G.score}</span><span id="time" class="time">${G.limit ? G.t : '∞'}</span></div>
+  app.innerHTML = `<section class="stage"><div class="top"><span>${G.duo ? 'Posers' : 'Poser'}: <b>${posNames()}</b></span><span>Level ${G.level}</span>
+    <span id="score">Score ${G.score}</span><span id="time" class="time">${G.limit ? G.t : '∞'}</span></div>
+    <div class="strip"><div class="chips">${chips()}</div><div class="rules">${rulesLine()}</div></div>
     <div class="mid">${figure(G.pose)}</div>
     ${G.cam ? '<div class="ai"><canvas id="skel" width="200" height="150"></canvas><div id="track"></div><div class="meter"><i id="meter-fill"></i></div><div id="rate"></div></div>' : ''}
     <div class="bar">${EMO.map((e, i) => `<button class="emo" ${e[2] ? 'disabled' : ''} title="${e[1]}" onclick="react(${i})">${e[0]}</button>`).join('')}</div>
-    <div class="row"><button onclick="lock()">🔒 Locked!</button><button class="ghost" onclick="home()">End game</button></div>
+    <div class="row"><button onclick="lock()">🔒 Locked!</button><button class="ghost" onclick="foul()">Call foul (−20)</button><button class="ghost" onclick="home()">End game</button></div>
     <div id="judge" class="judge" hidden><h2>Does it match?</h2><p id="judge-msg"></p><div class="row"><button class="bigbtn" onclick="match()">🎯 Match</button><button class="ghost" onclick="noMatch()">Not yet</button></div></div></section>`;
   if (G.limit) timer = setInterval(tick, 1000);
   if (G.cam) { Cam.preview = false; Cam.watch(G.pose, lock); Cam.run(); }
 }
+function foul() { G.score = Math.max(0, G.score - 20); $('#score').textContent = 'Score ' + G.score; float('FOUL −20', 40); }
 function tick() { G.t--; $('#time').textContent = G.t; $('#time').classList.toggle('low', G.t <= 10); if (G.t <= 0) timeUp(); }
 
 function float(e, x) {
@@ -147,7 +180,7 @@ function match() {
   fire('🎯'); fire('🏆'); G.level++; next('Level cleared!');
 }
 function timeUp() {
-  clearInterval(timer); Cam.target = null; fire('⏱️'); G.rounds++; G.poser = (G.poser + 1) % G.players.length; next("Time's up! Next Poser.");
+  clearInterval(timer); Cam.target = null; fire('⏱️'); G.rounds++; G.poser = (G.poser + (G.duo ? 2 : 1)) % G.players.length; next("Time's up! Next Poser.");
 }
 function next(msg) { if (G.stretch || G.rounds % 4 === 0) stretchBreak(msg); else ready(msg); }
 
