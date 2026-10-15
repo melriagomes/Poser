@@ -38,7 +38,7 @@ function figure(p) {
 
 // ---------- SCREENS ----------
 function home() {
-  clearInterval(timer);
+  clearInterval(timer); Cam.stop();
   app.innerHTML = `<section class="card"><h1>Pose Relay</h1><p class="sub">Human Tetris meets Charades. Wellness edition.</p>
     <h3>Players (3 to 7)</h3><div id="plist"></div>
     <div class="row"><button class="ghost" onclick="remP()">− Remove</button><button class="ghost" onclick="addP()">+ Add player</button></div>
@@ -46,6 +46,7 @@ function home() {
     <label>Hardest level <select id="diff"><option value="0">Easy</option><option value="1" selected>Medium</option><option value="2">Hard</option></select></label>
     <label class="chk"><input type="checkbox" id="safe" checked> Safe Mode (removes balance poses)</label>
     <label class="chk"><input type="checkbox" id="seat"> Seated poses only</label>
+    <label class="chk"><input type="checkbox" id="cam"> Camera AI judge (experimental)</label>
     <div class="row"><button onclick="start()">Start game</button><button class="ghost" onclick="rulebook(home)">How to play</button></div></section>`;
   ['Alex', 'Sam', 'Jo', 'Riley'].forEach(addP);
 }
@@ -68,9 +69,28 @@ function start() {
   const names = [...document.querySelectorAll('.pn')].map(i => i.value.trim() || i.placeholder);
   G = {
     players: names.map(n => ({ n, wins: 0, fun: 0 })), limit: +$('#mode').value, max: +$('#diff').value, safe: $('#safe').checked,
-    seated: $('#seat').checked, poser: 0, level: 1, rounds: 0, score: 0, emo: {}, used: [], stretch: false,
+    seated: $('#seat').checked, cam: $('#cam').checked, poser: 0, level: 1, rounds: 0, score: 0, emo: {}, used: [], stretch: false,
   };
-  ready('Get ready!');
+  if (G.cam && !Cam.ready) camSetup(); else ready('Get ready!');
+}
+
+async function camSetup() {
+  app.innerHTML = `<section class="card center"><h2>Camera setup</h2>
+    <p>Point the camera at the Poser so their whole body, head to feet, is in view. Only a skeleton is read; nothing is recorded or uploaded.</p>
+    <canvas id="skel" width="320" height="240" class="camprev"></canvas>
+    <p id="camstatus" class="sub">Starting...</p>
+    <label>Camera <select id="camsel"></select></label>
+    <label class="chk"><input type="checkbox" id="mirror"> Camera sees the Poser's back (flip left/right)</label>
+    <div class="row"><button onclick="ready('Get ready!')">Start game</button><button class="ghost" onclick="G.cam=false;ready('Get ready!')">Skip camera</button></div></section>`;
+  try {
+    await Cam.init(t => $('#camstatus').textContent = t);
+    Cam.preview = true; Cam.run();
+    $('#camstatus').textContent = 'Camera on. Step back until the blue skeleton covers the whole body.';
+    const cams = await Cam.cameras();
+    $('#camsel').innerHTML = cams.map((c, i) => `<option value="${c.deviceId}">${esc(c.label || 'Camera ' + (i + 1))}</option>`).join('');
+    $('#camsel').onchange = e => Cam.open(e.target.value);
+    $('#mirror').onchange = e => Cam.mirror = e.target.checked;
+  } catch (e) { G.cam = false; $('#camstatus').textContent = 'Camera unavailable (' + e.message + '). You can still play with human judging.'; }
 }
 
 function pick() {
@@ -96,10 +116,12 @@ function play() {
   app.innerHTML = `<section class="stage"><div class="top"><span>Poser: <b>${esc(G.players[G.poser].n)}</b></span><span>Level ${G.level}</span>
     <span>Score ${G.score}</span><span id="time" class="time">${G.limit ? G.t : '∞'}</span></div>
     ${figure(G.pose)}
+    ${G.cam ? '<div class="ai"><canvas id="skel" width="160" height="120"></canvas><div class="meter"><i id="meter-fill"></i></div><span id="meter-txt"></span></div>' : ''}
     <div class="bar">${EMO.map((e, i) => `<button class="emo" ${e[2] ? 'disabled' : ''} title="${e[1]}" onclick="react(${i})">${e[0]}</button>`).join('')}</div>
     <div class="row"><button onclick="lock()">🔒 Locked!</button></div>
-    <div id="judge" class="judge" hidden><h2>Does it match?</h2><div class="row"><button onclick="match()">🎯 Match</button><button class="ghost" onclick="noMatch()">Not yet</button></div></div></section>`;
+    <div id="judge" class="judge" hidden><h2>Does it match?</h2><p id="judge-msg"></p><div class="row"><button onclick="match()">🎯 Match</button><button class="ghost" onclick="noMatch()">Not yet</button></div></div></section>`;
   if (G.limit) timer = setInterval(tick, 1000);
+  if (G.cam) { Cam.preview = false; Cam.watch(G.pose, lock); Cam.run(); }
 }
 function tick() { G.t--; $('#time').textContent = G.t; $('#time').classList.toggle('low', G.t <= 10); if (G.t <= 0) timeUp(); }
 
@@ -112,14 +134,18 @@ function react(i) {
 }
 function fire(e) { const i = EMO.findIndex(x => x[0] === e); G.emo[e] = (G.emo[e] || 0) + 1; const f = document.createElement('div'); f.className = 'float'; f.textContent = e; f.style.left = '45%'; document.body.appendChild(f); setTimeout(() => f.remove(), 2000); }
 
-function lock() { clearInterval(timer); $('#judge').hidden = false; }
-function noMatch() { $('#judge').hidden = true; if (G.limit) timer = setInterval(tick, 1000); }
+function lock() {
+  clearInterval(timer); $('#judge').hidden = false;
+  if (G.cam) { $('#judge-msg').textContent = `AI score: ${Math.round(Cam.score)}% (needs ${Cam.thr}%). You have the final say.`; Cam.target = null; }
+}
+function noMatch() { $('#judge').hidden = true; if (G.limit) timer = setInterval(tick, 1000); if (G.cam) Cam.watch(G.pose, lock); }
 function match() {
+  Cam.target = null;
   G.score += 100 * G.level + (G.limit ? G.t * 2 : 0); G.players[G.poser].wins++; G.rounds++;
   fire('🎯'); fire('🏆'); G.level++; next('Level cleared!');
 }
 function timeUp() {
-  clearInterval(timer); fire('⏱️'); G.rounds++; G.poser = (G.poser + 1) % G.players.length; next("Time's up! Next Poser.");
+  clearInterval(timer); Cam.target = null; fire('⏱️'); G.rounds++; G.poser = (G.poser + 1) % G.players.length; next("Time's up! Next Poser.");
 }
 function next(msg) { if (G.stretch || G.rounds % 4 === 0) stretchBreak(msg); else ready(msg); }
 
@@ -130,7 +156,7 @@ function stretchBreak(msg) {
 }
 
 function result() {
-  clearInterval(timer);
+  clearInterval(timer); Cam.stop();
   const best = [...G.players].sort((a, b) => b.wins - a.wins)[0], fun = [...G.players].sort((a, b) => b.fun - a.fun)[0];
   const emo = EMO.map(e => `${e[0]} ${G.emo[e[0]] || 0}`).join('  ');
   const text = `Pose Relay: score ${G.score}, levels cleared ${G.level - 1}\n${emo}`;
