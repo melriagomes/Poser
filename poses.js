@@ -25,8 +25,3 @@ const POSES = [
   { id: 'dancer2',  d: 'hard', safe: false, seated: false, prof: true, lean: -15, a: { r: [100, 100], l: [-90, -90] }, lg: { l: [0, 0], r: [120, 170] } },
   { id: 'splits',   d: 'hard', safe: false, seated: false, at: [.5, .78], lean: -15, a: { r: [150, 160], l: [-45, -60] }, lg: { l: [-90, -90], r: [90, 90] } },
   { id: 'sidePlank', d: 'hard', safe: false, seated: false, prof: true, at: [.6, .52], lean: -53, a: { r: [0, 0], l: [180, 180] }, lg: { l: [53, 53], r: [53, 53] } },
-  { id: 'warrior3', d: 'hard', safe: false, seated: false, prof: true, at: [.4, .45], lean: 90, a: { r: [90, 90], l: [90, 90] }, lg: { l: [0, 0], r: [-90, -90] } },
-  { id: 'headstand', d: 'hard', safe: false, seated: false, at: [.5, .42], lean: 180, a: { r: [-25, 25], l: [25, -25] }, lg: { r: [180, 180], l: [180, 180] } },
-  { id: 'crow',     d: 'hard', safe: false, seated: false, prof: true, at: [.45, .45], lean: 110, a: { r: [10, -10], l: [10, -10] }, lg: { r: [75, -110], l: [75, -110] } },
-  { id: 'bow',      d: 'hard', safe: false, seated: false, prof: true, at: [.5, .72], lean: 45, a: { r: [-140, -110], l: [-130, -100] }, lg: { r: [-120, 190], l: [-120, 190] } },
-];
