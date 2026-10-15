@@ -1,7 +1,7 @@
 const $ = s => document.querySelector(s);
 const app = $('#app');
 const esc = s => s.replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
-// Exactly the 10 emojis from the plan. sys=true means only the game triggers it.
+// Exactly the 10 emojis from the plan. The third value 1 means only the game triggers it.
 const EMO = [
   ['🎯', 'Nailed It', 1], ['🔥', 'Getting Hot'], ['❄️', 'Getting Cold'], ['👀', 'Almost'], ['😵', 'Confusion'],
   ['🤣', 'Funny Fail'], ['🤝', 'Teamwork'], ['⏱️', "Time's Up", 1], ['🏆', 'Level Cleared', 1], ['🧘', 'Stretch Break'],
@@ -10,44 +10,47 @@ const TIERS = ['easy', 'medium', 'hard'];
 const STRETCH = ['Reach up high', 'Roll your shoulders', 'Gentle side stretch left', 'Gentle side stretch right'];
 let G, timer;
 
+function goFull() { try { const r = document.documentElement.requestFullscreen(); if (r && r.catch) r.catch(() => {}); } catch (e) {} }
+function toggleFull() { document.fullscreenElement ? document.exitFullscreen() : goFull(); }
+
 // ---------- SILHOUETTE RENDERER (angles -> keypoints -> SVG) ----------
 function keypoints(p) {
   const v = a => [Math.sin(a * Math.PI / 180), Math.cos(a * Math.PI / 180)];
   const add = (a, b, k) => [a[0] + b[0] * k, a[1] + b[1] * k];
-  const ln = (p.lean || 0) * Math.PI / 180, hip = [.5, .55];
+  const ln = (p.lean || 0) * Math.PI / 180, hip = p.at || [.5, .55], w = p.prof ? 0 : 1;
   const up = [Math.sin(ln), -Math.cos(ln)], side = [Math.cos(ln), Math.sin(ln)];
-  const neck = add(hip, up, .24), out = { hip, neck, head: add(neck, up, .085) };
+  const neck = add(hip, up, .24), out = { hip, neck, head: add(neck, up, .085), w };
   for (const s of ['l', 'r']) {
     const k = s === 'r' ? 1 : -1, arm = (p.a || {})[s] || [k * 8, k * 8], leg = (p.lg || {})[s] || [k * 4, k * 4];
-    const sh = add(neck, side, k * .085), el = add(sh, v(arm[0]), .15), wr = add(el, v(arm[1]), .14);
-    const hp = add(hip, side, k * .05), kn = add(hp, v(leg[0]), .19), an = add(kn, v(leg[1]), .19);
+    const sh = add(neck, side, k * .085 * w), el = add(sh, v(arm[0]), .15), wr = add(el, v(arm[1]), .14);
+    const hp = add(hip, side, k * .05 * w), kn = add(hp, v(leg[0]), .19), an = add(kn, v(leg[1]), .19);
     out[s] = { arm: [sh, el, wr], leg: [hp, kn, an] };
   }
   return out;
 }
 function figure(p) {
   const k = keypoints(p), pts = a => a.map(q => q.join(',')).join(' ');
-  let s = `<line x1="${k.hip[0]}" y1="${k.hip[1]}" x2="${k.neck[0]}" y2="${k.neck[1]}" stroke-width=".13"/>`;
+  let s = `<line x1="${k.hip[0]}" y1="${k.hip[1]}" x2="${k.neck[0]}" y2="${k.neck[1]}" stroke-width="${k.w ? .13 : .1}"/>`;
   s += `<circle cx="${k.head[0]}" cy="${k.head[1]}" r=".055" fill="currentColor" stroke="none"/>`;
   for (const side of ['l', 'r']) {
-    s += `<polyline points="${pts(k[side].arm)}" stroke-width=".045"/>`;
-    s += `<polyline points="${pts(k[side].leg)}" stroke-width=".06"/>`;
+    s += `<polyline points="${pts(k[side].arm)}" stroke-width=".045"/><polyline points="${pts(k[side].leg)}" stroke-width=".06"/>`;
   }
-  return `<svg viewBox="0 0 1 1" class="sil" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">${s}</svg>`;
+  return `<svg viewBox="0 0 1 1" class="sil" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><g opacity=".85">${s}</g><g id="live"></g></svg>`;
 }
 
 // ---------- SCREENS ----------
 function home() {
   clearInterval(timer); Cam.stop();
-  app.innerHTML = `<section class="card"><h1>Pose Relay</h1><p class="sub">Human Tetris meets Charades. Wellness edition.</p>
-    <h3>Players (3 to 7)</h3><div id="plist"></div>
-    <div class="row"><button class="ghost" onclick="remP()">− Remove</button><button class="ghost" onclick="addP()">+ Add player</button></div>
-    <label>Mode <select id="mode"><option value="60">Classic (60s)</option><option value="25">Rapid Fire (25s)</option><option value="0">Chill (no timer)</option></select></label>
-    <label>Hardest level <select id="diff"><option value="0">Easy</option><option value="1" selected>Medium</option><option value="2">Hard</option></select></label>
-    <label class="chk"><input type="checkbox" id="safe" checked> Safe Mode (removes balance poses)</label>
-    <label class="chk"><input type="checkbox" id="seat"> Seated poses only</label>
-    <label class="chk"><input type="checkbox" id="cam"> Camera AI judge (experimental)</label>
-    <div class="row"><button onclick="start()">Start game</button><button class="ghost" onclick="rulebook(home)">How to play</button></div></section>`;
+  app.innerHTML = `<section class="home"><h1>Pose Relay</h1><p class="sub">Human Tetris meets Charades. Wellness edition.</p>
+    <div class="grid2"><div><h3>Players (3 to 7)</h3><div id="plist"></div>
+      <div class="row"><button class="ghost" onclick="remP()">− Remove</button><button class="ghost" onclick="addP()">+ Add player</button></div></div>
+    <div><label>Mode <select id="mode"><option value="60">Classic (60s)</option><option value="25">Rapid Fire (25s)</option><option value="0">Chill (no timer)</option></select></label>
+    <label>Hardest level <select id="diff"><option value="0">Easy</option><option value="1">Medium</option><option value="2" selected>Hard</option></select></label>
+    <label class="chk"><input type="checkbox" id="safe" checked> Safe Mode (removes balance and floor-risk poses)</label>
+    <label class="chk"><input type="checkbox" id="seat"> Seated poses only</label></div></div>
+    <div class="row"><button class="bigbtn" onclick="start(true)">📷 Start with camera</button><button class="bigbtn alt" onclick="start(false)">Start without camera</button></div>
+    <p class="sub small">Camera mode reads a skeleton only. Nothing is recorded or uploaded.</p>
+    <button class="ghost" onclick="rulebook(home)">How to play</button></section>`;
   ['Alex', 'Sam', 'Jo', 'Riley'].forEach(addP);
 }
 function addP(n) { if (document.querySelectorAll('.pn').length >= 7) return; const i = document.createElement('input'); i.className = 'pn'; i.maxLength = 14; i.placeholder = typeof n === 'string' ? n : 'Player ' + (document.querySelectorAll('.pn').length + 1); i.value = typeof n === 'string' ? n : ''; $('#plist').appendChild(i); }
@@ -57,7 +60,7 @@ function rulebook(back) {
   app.innerHTML = `<section class="card"><h2>How to play</h2><ol>
     <li>One <b>Poser</b> turns their back to the screen. Everyone else is a <b>Describer</b> and can see the silhouette.</li>
     <li>Describers use <b>words only</b>: body parts and directions. No touching, no mimicking, no pose names.</li>
-    <li>The Poser says "Locked!" (or anyone presses Lock). Describers judge: Match or No Match.</li>
+    <li>The Poser says "Locked!" (or anyone presses Lock). Describers judge: Match or Not yet. With the camera on, the game locks by itself when the pose is held.</li>
     <li>Match: level up, same Poser continues. Time runs out: the next player becomes Poser.</li>
     <li>Emojis give feedback only, never instructions. 🧘 triggers a 20-second Stretch Break.</li>
     <li>Safety: no jumping, flipping or forced balance on hard floors. Left and right are mirrored on purpose. Good luck!</li></ol>
@@ -65,23 +68,24 @@ function rulebook(back) {
     <button onclick="(${back.name})()">Back</button></section>`;
 }
 
-function start() {
+function start(cam) {
   const names = [...document.querySelectorAll('.pn')].map(i => i.value.trim() || i.placeholder);
   G = {
-    players: names.map(n => ({ n, wins: 0, fun: 0 })), limit: +$('#mode').value, max: +$('#diff').value, safe: $('#safe').checked,
-    seated: $('#seat').checked, cam: $('#cam').checked, poser: 0, level: 1, rounds: 0, score: 0, emo: {}, used: [], stretch: false,
+    players: names.map(n => ({ n })), limit: +$('#mode').value, max: +$('#diff').value, safe: $('#safe').checked,
+    seated: $('#seat').checked, cam, poser: 0, level: 1, rounds: 0, score: 0, used: [], stretch: false,
   };
-  if (G.cam && !Cam.ready) camSetup(); else ready('Get ready!');
+  goFull();
+  if (cam) camSetup(); else ready('Get ready!');
 }
 
 async function camSetup() {
-  app.innerHTML = `<section class="card center"><h2>Camera setup</h2>
+  app.innerHTML = `<section class="card"><h2>Camera setup</h2>
     <p>Point the camera at the Poser so their whole body, head to feet, is in view. Only a skeleton is read; nothing is recorded or uploaded.</p>
-    <canvas id="skel" width="320" height="240" class="camprev"></canvas>
+    <canvas id="skel" width="480" height="360" class="camprev"></canvas>
     <p id="camstatus" class="sub">Starting...</p>
     <label>Camera <select id="camsel"></select></label>
     <label class="chk"><input type="checkbox" id="mirror"> Camera sees the Poser's back (flip left/right)</label>
-    <div class="row"><button onclick="ready('Get ready!')">Start game</button><button class="ghost" onclick="G.cam=false;ready('Get ready!')">Skip camera</button></div></section>`;
+    <div class="row"><button onclick="ready('Get ready!')">Start game</button><button class="ghost" onclick="G.cam=false;ready('Get ready!')">Play without camera</button></div></section>`;
   try {
     await Cam.init(t => $('#camstatus').textContent = t);
     Cam.preview = true; Cam.run();
@@ -105,34 +109,33 @@ function pick() {
 
 function ready(msg) {
   clearInterval(timer);
+  if (G.cam) Cam.preview = false;
   const who = esc(G.players[G.poser].n);
   app.innerHTML = `<section class="card center"><p class="sub">${msg}</p><h2>${who} is the Poser</h2>
     <p>${who}: turn your back to the screen.<br>Describers: get ready to talk!</p><p class="big">Level ${G.level}</p>
-    <button onclick="play()">Show pose and start</button><button class="ghost" onclick="result()">End game</button></section>`;
+    <div class="row"><button class="bigbtn" onclick="play()">Show pose and start</button><button class="ghost" onclick="home()">End game</button></div></section>`;
 }
 
 function play() {
-  G.pose = pick(); G.t = G.limit; G.locked = false;
+  G.pose = pick(); G.t = G.limit;
   app.innerHTML = `<section class="stage"><div class="top"><span>Poser: <b>${esc(G.players[G.poser].n)}</b></span><span>Level ${G.level}</span>
     <span>Score ${G.score}</span><span id="time" class="time">${G.limit ? G.t : '∞'}</span></div>
-    ${figure(G.pose)}
-    ${G.cam ? '<div class="ai"><canvas id="skel" width="160" height="120"></canvas><div class="meter"><i id="meter-fill"></i></div><span id="meter-txt"></span></div>' : ''}
+    <div class="mid">${figure(G.pose)}</div>
+    ${G.cam ? '<div class="ai"><canvas id="skel" width="200" height="150"></canvas><div id="track"></div><div class="meter"><i id="meter-fill"></i></div><div id="rate"></div></div>' : ''}
     <div class="bar">${EMO.map((e, i) => `<button class="emo" ${e[2] ? 'disabled' : ''} title="${e[1]}" onclick="react(${i})">${e[0]}</button>`).join('')}</div>
-    <div class="row"><button onclick="lock()">🔒 Locked!</button></div>
-    <div id="judge" class="judge" hidden><h2>Does it match?</h2><p id="judge-msg"></p><div class="row"><button onclick="match()">🎯 Match</button><button class="ghost" onclick="noMatch()">Not yet</button></div></div></section>`;
+    <div class="row"><button onclick="lock()">🔒 Locked!</button><button class="ghost" onclick="home()">End game</button></div>
+    <div id="judge" class="judge" hidden><h2>Does it match?</h2><p id="judge-msg"></p><div class="row"><button class="bigbtn" onclick="match()">🎯 Match</button><button class="ghost" onclick="noMatch()">Not yet</button></div></div></section>`;
   if (G.limit) timer = setInterval(tick, 1000);
   if (G.cam) { Cam.preview = false; Cam.watch(G.pose, lock); Cam.run(); }
 }
 function tick() { G.t--; $('#time').textContent = G.t; $('#time').classList.toggle('low', G.t <= 10); if (G.t <= 0) timeUp(); }
 
-function react(i) {
-  const [e] = EMO[i]; G.emo[e] = (G.emo[e] || 0) + 1;
-  if (e === '🤣') G.players[G.poser].fun++;
-  if (e === '🧘') G.stretch = true;
-  const f = document.createElement('div'); f.className = 'float'; f.textContent = e; f.style.left = 10 + Math.random() * 80 + '%';
+function float(e, x) {
+  const f = document.createElement('div'); f.className = 'float'; f.textContent = e; f.style.left = x + '%';
   document.body.appendChild(f); setTimeout(() => f.remove(), 2000);
 }
-function fire(e) { const i = EMO.findIndex(x => x[0] === e); G.emo[e] = (G.emo[e] || 0) + 1; const f = document.createElement('div'); f.className = 'float'; f.textContent = e; f.style.left = '45%'; document.body.appendChild(f); setTimeout(() => f.remove(), 2000); }
+function react(i) { if (EMO[i][0] === '🧘') G.stretch = true; float(EMO[i][0], 10 + Math.random() * 80); }
+function fire(e) { float(e, 45); }
 
 function lock() {
   clearInterval(timer); $('#judge').hidden = false;
@@ -140,8 +143,7 @@ function lock() {
 }
 function noMatch() { $('#judge').hidden = true; if (G.limit) timer = setInterval(tick, 1000); if (G.cam) Cam.watch(G.pose, lock); }
 function match() {
-  Cam.target = null;
-  G.score += 100 * G.level + (G.limit ? G.t * 2 : 0); G.players[G.poser].wins++; G.rounds++;
+  Cam.target = null; G.score += 100 * G.level + (G.limit ? G.t * 2 : 0); G.rounds++;
   fire('🎯'); fire('🏆'); G.level++; next('Level cleared!');
 }
 function timeUp() {
@@ -155,16 +157,5 @@ function stretchBreak(msg) {
   draw(); timer = setInterval(() => { t--; if (t <= 0) { clearInterval(timer); ready(msg); } else draw(); }, 1000);
 }
 
-function result() {
-  clearInterval(timer); Cam.stop();
-  const best = [...G.players].sort((a, b) => b.wins - a.wins)[0], fun = [...G.players].sort((a, b) => b.fun - a.fun)[0];
-  const emo = EMO.map(e => `${e[0]} ${G.emo[e[0]] || 0}`).join('  ');
-  const text = `Pose Relay: score ${G.score}, levels cleared ${G.level - 1}\n${emo}`;
-  app.innerHTML = `<section class="card center"><h2>Result card</h2><p class="big">${G.score} pts</p><p>Levels cleared: <b>${G.level - 1}</b> in ${G.rounds} rounds</p>
-    <p class="emos">${EMO.map(e => `<span>${e[0]} ${G.emo[e[0]] || 0}</span>`).join('')}</p>
-    ${best.wins ? `<p>🥇 Most Flexible: <b>${esc(best.n)}</b> (${best.wins} cleared)</p>` : ''}
-    ${fun.fun ? `<p>🤣 Funniest Fail: <b>${esc(fun.n)}</b></p>` : ''}
-    <div class="row"><button onclick="navigator.clipboard.writeText(${JSON.stringify(text).replace(/"/g, '&quot;')});this.textContent='Copied!'">Copy result</button><button class="ghost" onclick="home()">Play again</button></div></section>`;
-}
-
+document.body.insertAdjacentHTML('beforeend', '<button id="fs" title="Full screen" onclick="toggleFull()">⛶</button>');
 home();
