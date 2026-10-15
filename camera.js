@@ -1,14 +1,17 @@
-// CAMERA AI JUDGE. Runs MoveNet in the browser. Only a skeleton is used; video is never stored or uploaded.
-const THRESH = { easy: 70, medium: 75, hard: 80 }; // % match needed per difficulty (tune in playtests)
-const HOLD_MS = 1500;                              // pose must stay accurate this long to count
+// CAMERA AI JUDGE (Just Dance style): live skeleton tracking, per-limb colour feedback, rating and a hold timer.
+// MoveNet runs in the browser. Only a skeleton is used; video is never stored or uploaded.
+const THRESH = { easy: 65, medium: 70, hard: 75 }; // % match needed per difficulty (tune in playtests)
+const HOLD_MS = 1500;                              // pose must stay accurate this long
 const EDGES = [['left_shoulder', 'right_shoulder'], ['left_hip', 'right_hip'], ['left_shoulder', 'left_hip'], ['right_shoulder', 'right_hip'],
   ['left_shoulder', 'left_elbow'], ['left_elbow', 'left_wrist'], ['right_shoulder', 'right_elbow'], ['right_elbow', 'right_wrist'],
   ['left_hip', 'left_knee'], ['left_knee', 'left_ankle'], ['right_hip', 'right_knee'], ['right_knee', 'right_ankle']];
 const load = src => new Promise((ok, no) => { const s = document.createElement('script'); s.src = src; s.onload = ok; s.onerror = () => no(new Error('could not load AI library, check internet')); document.head.appendChild(s); });
 const ang = (a, b, m = 1) => Math.atan2((b[0] - a[0]) * m, b[1] - a[1]) * 180 / Math.PI;   // 0 = down, 90 = screen-right
 const diff = (a, b) => Math.abs((((a - b) % 360) + 540) % 360 - 180);
+const dirv = a => [Math.sin(a * Math.PI / 180), Math.cos(a * Math.PI / 180)];
+const COL = d => d < 22 ? '#009E73' : d < 40 ? '#E69F00' : '#D55E00';   // good / close / off (colour-blind safe)
 
-function targetAngles(p) {            // segment angles of the target silhouette
+function targetAngles(p) {
   const k = keypoints(p), t = { torso: ang(k.hip, k.neck) };
   for (const s of ['l', 'r']) {
     const [sh, el, wr] = k[s].arm, [hp, kn, an] = k[s].leg;
@@ -18,7 +21,7 @@ function targetAngles(p) {            // segment angles of the target silhouette
 }
 
 const Cam = {
-  ready: false, on: false, mirror: false, preview: false, score: 0, since: 0, last: 0, target: null, thr: 75,
+  ready: false, on: false, mirror: false, preview: false, score: 0, since: 0, last: 0, target: null, pose: null, thr: 70,
   async init(status) {
     if (this.ready) return;
     if (!navigator.mediaDevices) throw new Error('open the game from localhost or https');
@@ -43,7 +46,7 @@ const Cam = {
     this.video.srcObject = this.stream; await this.video.play();
   },
   cameras: async () => (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === 'videoinput'),
-  watch(pose, onHit) { this.target = targetAngles(pose); this.thr = THRESH[pose.d]; this.since = 0; this.score = 0; this.onHit = onHit; },
+  watch(pose, onHit) { this.pose = pose; this.target = targetAngles(pose); this.thr = THRESH[pose.d]; this.since = 0; this.score = 0; this.onHit = onHit; },
   run() { if (!this.on) { this.on = true; this.loop(); } },
   stop() { this.on = false; this.ready = false; this.target = null; if (this.stream) this.stream.getTracks().forEach(t => t.stop()); },
 
@@ -55,37 +58,64 @@ const Cam = {
       try {
         const [p] = await this.detector.estimatePoses(this.video), kp = {};
         (p ? p.keypoints : []).forEach(q => kp[q.name] = q);
-        this.update(p ? this.measure(kp) : null, now); this.draw(kp);
+        const seen = Object.values(kp).filter(q => q.score > .3).length >= 5, best = this.measure(kp);
+        this.update(best, seen, now); this.draw(kp);
       } catch (e) { console.warn(e); }
     }
     requestAnimationFrame(() => this.loop());
   },
-  measure(kp) {                       // accuracy 0-100 from joint ANGLES, so body size and distance don't matter
-    const m = this.mirror ? -1 : 1, g = n => kp[n] || { score: 0 }, ok = (...n) => n.every(x => g(x).score > .3);
+  measure(kp) {      // side-on poses try both camera directions, because the Poser may face either way
+    if (!this.target) return null;
+    const combos = this.pose.prof ? [[1, 0], [-1, 0], [1, 1], [-1, 1]] : [[this.mirror ? -1 : 1, 0]];
+    let best = null;
+    for (const [m, sw] of combos) { const r = this.try(kp, m, sw); if (r && (!best || r.score > best.score)) best = r; }
+    return best;
+  },
+  try(kp, m, sw) {   // compares joint ANGLES, so body size and camera distance don't matter
+    const g = n => kp[n] || { score: 0 }, ok = (...n) => n.every(x => g(x).score > .3);
     const pt = n => [g(n).x, g(n).y], mid = (a, b) => [(g(a).x + g(b).x) / 2, (g(a).y + g(b).y) / 2], cur = {};
     const seg = (key, a, b) => { if (ok(a, b)) cur[key] = ang(pt(a), pt(b), m); };
-    for (const s of ['l', 'r']) {     // the person's LEFT appears on screen-right for a camera facing them
-      const p = s === 'r' ? 'left_' : 'right_';
+    for (const s of ['l', 'r']) {       // for a camera facing the Poser, their LEFT appears on screen-right
+      const p = (s === 'r') !== !!sw ? 'left_' : 'right_';
       seg(s + 'ua', p + 'shoulder', p + 'elbow'); seg(s + 'fa', p + 'elbow', p + 'wrist');
       seg(s + 'th', p + 'hip', p + 'knee'); seg(s + 'sh', p + 'knee', p + 'ankle');
     }
     if (ok('left_hip', 'right_hip', 'left_shoulder', 'right_shoulder')) cur.torso = ang(mid('left_hip', 'right_hip'), mid('left_shoulder', 'right_shoulder'), m);
     const keys = Object.keys(cur);
-    if (keys.length < 4 || !this.target) return null;
-    return 100 * keys.reduce((s, k) => s + Math.max(0, Math.min(1, 1 - (diff(cur[k], this.target[k]) - 10) / 50)), 0) / keys.length;
+    if (keys.length < 4) return null;
+    const d = {}; keys.forEach(k => d[k] = diff(cur[k], this.target[k]));
+    return { cur, d, score: 100 * keys.reduce((s, k) => s + Math.max(0, Math.min(1, 1 - (d[k] - 15) / 55)), 0) / keys.length };
   },
-  update(raw, now) {
-    this.score = raw == null ? 0 : this.score * .6 + raw * .4;
-    const fill = $('#meter-fill'), txt = $('#meter-txt');
+  update(best, seen, now) {
+    this.score = best ? this.score * .6 + best.score * .4 : 0;
+    this.paintLive(best);
+    if (this.target) {
+      if (this.score >= this.thr) {
+        this.since = this.since || now;
+        if (now - this.since >= HOLD_MS) { const f = this.onHit; this.target = null; if (f) f(); }
+      } else this.since = 0;
+    }
+    const fill = $('#meter-fill'), tr = $('#track'), rate = $('#rate');
     if (fill) { fill.style.width = this.score + '%'; fill.classList.toggle('hit', this.score >= this.thr); }
-    if (txt) txt.textContent = raw == null ? "Can't see the Poser" : Math.round(this.score) + '%';
-    if (!this.target) return;
-    if (this.score >= this.thr) {
-      this.since = this.since || now;
-      if (now - this.since >= HOLD_MS) { const f = this.onHit; this.target = null; if (f) f(); }
-    } else this.since = 0;
+    if (tr) tr.textContent = seen ? '🟢 Camera is tracking the Poser' : "🔴 Can't see the Poser";
+    if (rate) rate.textContent = !seen || !this.target ? '' : this.since ? 'HOLD IT... ' + Math.max(0, (HOLD_MS - (now - this.since)) / 1000).toFixed(1) + 's'
+      : this.score >= 85 ? 'PERFECT!' : this.score >= this.thr ? 'GREAT!' : this.score >= 50 ? 'OK' : 'KEEP GOING';
   },
-  draw(kp) {                          // skeleton only (video is shown just on the setup screen)
+  paintLive(best) {  // draws the Poser's real limb angles on top of the silhouette, coloured by accuracy
+    const g = $('#live'); if (!g) return;
+    if (!best || !this.pose) { g.innerHTML = ''; return; }
+    const k = keypoints(this.pose), line = (a, b, d) => `<line x1="${a[0]}" y1="${a[1]}" x2="${b[0]}" y2="${b[1]}" stroke="${COL(d)}" stroke-width=".026"/>`;
+    let s = '';
+    for (const sd of ['l', 'r']) for (const [grp, [u, f], [lu, lf]] of [['arm', ['ua', 'fa'], [.15, .14]], ['leg', ['th', 'sh'], [.19, .19]]]) {
+      const p0 = k[sd][grp][0];
+      if (best.cur[sd + u] == null) continue;
+      const v1 = dirv(best.cur[sd + u]), p1 = [p0[0] + v1[0] * lu, p0[1] + v1[1] * lu];
+      s += line(p0, p1, best.d[sd + u]);
+      if (best.cur[sd + f] != null) { const v2 = dirv(best.cur[sd + f]); s += line(p1, [p1[0] + v2[0] * lf, p1[1] + v2[1] * lf], best.d[sd + f]); }
+    }
+    g.innerHTML = s;
+  },
+  draw(kp) {         // small skeleton window (video is shown only on the setup screen)
     const c = $('#skel'); if (!c) return;
     const x = c.getContext('2d'), W = c.width, H = c.height, vw = this.video.videoWidth, vh = this.video.videoHeight;
     x.fillStyle = '#211e46'; x.fillRect(0, 0, W, H);
