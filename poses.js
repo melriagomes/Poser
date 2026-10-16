@@ -24,4 +24,4 @@ const POSES = [
   { id: 'dancer',   d: 'hard', safe: false, seated: false, prof: true, a: { r: [-125, -30], l: [-110, -25] }, lg: { l: [0, 0], r: [-100, 180] } },
   { id: 'dancer2',  d: 'hard', safe: false, seated: false, prof: true, lean: -15, a: { r: [100, 100], l: [-90, -90] }, lg: { l: [0, 0], r: [120, 170] } },
   { id: 'splits',   d: 'hard', safe: false, seated: false, at: [.5, .78], lean: -15, a: { r: [150, 160], l: [-45, -60] }, lg: { l: [-90, -90], r: [90, 90] } },
-  { id: 'sidePlank', d: 'hard', safe: false, seated: false, prof: true, at: [.6, .52], lean: -53, a: { r: [0, 0], l: [180, 180] }, lg: { l: [53, 53], r: [53, 53] } },
+  { id: 'sidePlank', d: 'hard', safe: false, seated: false, prof: true, at: [.6, .52], lean: -53, a: { r: [0, 0], l: [180, 180] }, lg: { l: [53, 53], r: [53, 53] } } ]
