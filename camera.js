@@ -24,6 +24,8 @@ const diff = (a, b) => Math.abs((((a - b) % 360) + 540) % 360 - 180);
 const dirv = a => [Math.sin(a * Math.PI / 180), Math.cos(a * Math.PI / 180)];
 // good = solid, close = dashed, off = dotted: never colour alone (WCAG 1.4.1). Each line has a dark halo so it reads on the orange silhouette.
 const COL = d => d < 22 ? ['#6FE3B0', ''] : d < 40 ? ['#FFD166', '.035 .02'] : ['#FF8FA3', '.012 .02'];
+// limb fills on the cream pose card: darker versions of the same three colours so they read against cream (dashes on the lines carry the meaning too)
+const TINT = d => d < 22 ? '#2F8A5F' : d < 40 ? '#C08A12' : '#C2445E';
 
 class OneEuro {      // One Euro filter (Casiez et al.): smooth when still, responsive when moving
   constructor(mc = 1.5, beta = .02) { this.mc = mc; this.b = beta; this.x = null; }
@@ -63,7 +65,16 @@ async function makeMediaPipe(n, status) {
       try { r = lm.detectForVideo(video, t); }
       catch (e) { if (delegate !== 'GPU') throw e; delegate = 'CPU'; lm = await mk('CPU'); r = lm.detectForVideo(video, t + 1); last = t + 1; }
       const W = video.videoWidth, H = video.videoHeight;
-      return r.landmarks.map(L => { const kp = {}; for (const i in NAMES) if (L[i]) kp[NAMES[i]] = { x: L[i].x * W, y: L[i].y * H, score: L[i].visibility == null ? 1 : L[i].visibility }; return kp; });
+      // Some tasks-vision builds report visibility as missing or 0 for every landmark; treat that as "unknown" (1), not "hidden".
+      // MediaPipe also guesses joints outside the frame, often with high visibility: those count as hidden so made-up legs can't score.
+      return r.landmarks.map(L => {
+        const hasVis = L.some(q => q && q.visibility > 0), kp = {};
+        for (const i in NAMES) if (L[i]) {
+          const q = L[i], out = q.x < -.02 || q.x > 1.02 || q.y < -.02 || q.y > 1.02;
+          kp[NAMES[i]] = { x: q.x * W, y: q.y * H, score: out ? 0 : hasVis ? q.visibility : 1 };
+        }
+        return kp;
+      });
     },
   };
 }
@@ -105,12 +116,18 @@ const Cam = {
   },
   async open(deviceId) {
     if (this.stream) this.stream.getTracks().forEach(t => t.stop());
-    this.stream = await navigator.mediaDevices.getUserMedia({ audio: false, video: { width: { ideal: 960 }, height: { ideal: 540 }, ...(deviceId ? { deviceId: { exact: deviceId } } : {}) } });
+    this.stream = await navigator.mediaDevices.getUserMedia({ audio: false, video: { width: { ideal: 960 }, height: { ideal: 540 }, frameRate: { ideal: 30 }, ...(deviceId ? { deviceId: { exact: deviceId } } : {}) } });
     if (!this.video) {
       this.video = document.createElement('video'); this.video.muted = true; this.video.playsInline = true;
       this.video.style.cssText = 'position:fixed;left:-9999px;width:320px;height:240px'; document.body.appendChild(this.video);
+      this.video.addEventListener('resize', () => this.fit());   // phone rotated, or the camera changed resolution
     }
     this.video.srcObject = this.stream; await this.video.play();
+    this.fit();
+  },
+  fit() {               // detectors that read the element's width/height attributes (TF.js MoveNet) must see the true frame size, not 0 or the CSS box
+    const v = this.video; if (!v || !v.videoWidth) return;
+    v.width = v.videoWidth; v.height = v.videoHeight; this.filters = {};
   },
   cameras: async () => (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === 'videoinput'),
   watch(pose, onHit) {
@@ -140,7 +157,7 @@ const Cam = {
     const mx = k => { const v = ['left_hip', 'right_hip', 'left_shoulder', 'right_shoulder'].filter(j => good(k, j)).map(j => k[j].x); return v.length ? v.reduce((s, x) => s + x, 0) / v.length : W / 2; };
     const ps = raw.filter(k => cnt(k) >= 4).sort((a, b) => cnt(b) - cnt(a)).slice(0, this.n).sort((a, b) => mx(a) - mx(b));
     if (this.mirror) ps.reverse();
-    if (now - this.seenAt > 600) this.filters = {};
+    if (now - this.seenAt > 600 || this.mirror !== this.wasMirror) { this.filters = {}; this.wasMirror = this.mirror; }
     if (ps.length) this.seenAt = now;
     return ps.map((k, i) => {
       const o = {};
@@ -158,11 +175,23 @@ const Cam = {
     const pen = this.touchPenalty(people);
     return { per, pen, score: pen * per.reduce((s, p) => s + p.score, 0) / per.length, min: pen * Math.min(...per.map(p => p.score)) };
   },
+  // Which detector label is the figure's 'r' side? The figure's 'r' is its screen-right when upright, and the Poser faces away from the
+  // screen, so the camera sees their back with their own right on screen-right. Detector left/right labels are unreliable from behind
+  // (and wrong for a front view), so pick sides from where the shoulders and hips actually sit, measured across the body's own
+  // hips-to-shoulders axis so upside-down and tilted poses (headstand, side bends) still work. Falls back to the front-view guess.
+  sides(k) {
+    const ok = j => k[j] && k[j].score > .3, mid = (a, b) => ok(a) && ok(b) ? [(k[a].x + k[b].x) / 2, (k[a].y + k[b].y) / 2] : null;
+    const sm = mid('left_shoulder', 'right_shoulder'), hm = mid('left_hip', 'right_hip');
+    const up = sm && hm ? [sm[0] - hm[0], sm[1] - hm[1]] : [0, -1];   // no torso: assume upright
+    let lr = 0;   // > 0 when the 'left_' joints sit on the body's right-hand side (as drawn on screen)
+    for (const [j, m] of [['shoulder', sm], ['hip', hm]]) if (m && ok('left_' + j)) lr += up[0] * (k['left_' + j].y - m[1]) - up[1] * (k['left_' + j].x - m[0]);
+    return lr >= 0 ? { r: 'left_', l: 'right_' } : { r: 'right_', l: 'left_' };
+  },
   touchPenalty(people) { // duo poses with touching hands: wrists must be close (relative to torso length)
     let pen = 1;
     for (const [i, si, j, sj] of (this.pose.touch || [])) {
       const a = people[i], b = people[j]; if (!a || !b) continue;
-      const w = (k, s) => k[(s === 'r' ? 'left_' : 'right_') + 'wrist'], A = w(a, si), B = w(b, sj);
+      const w = (k, s) => k[this.sides(k)[s] + 'wrist'], A = w(a, si), B = w(b, sj);
       const tl = k => { const o = ['left_shoulder', 'right_shoulder', 'left_hip', 'right_hip'].map(j => k[j]); return o.every(Boolean) ? Math.hypot((o[0].x + o[1].x - o[2].x - o[3].x) / 2, (o[0].y + o[1].y - o[2].y - o[3].y) / 2) : 0; };
       const L = (tl(a) + tl(b)) / 2;
       if (A && B && A.score > .3 && B.score > .3 && L > 0) { const dd = Math.hypot(A.x - B.x, A.y - B.y) / L; if (dd > .7) pen = Math.min(pen, Math.max(.4, 1 - (dd - .7))); }
@@ -179,8 +208,9 @@ const Cam = {
     const g = n => kp[n] || { score: 0 }, ok = (...n) => n.every(x => g(x).score > .3);
     const pt = n => [g(n).x, g(n).y], mid = (a, b) => [(g(a).x + g(b).x) / 2, (g(a).y + g(b).y) / 2], cur = {}, wt = {};
     const seg = (key, a, b) => { if (ok(a, b)) { cur[key] = ang(pt(a), pt(b), m); wt[key] = Math.min(g(a).score, g(b).score) * SEGW[key === 'torso' ? 'torso' : key.slice(1)]; } };
-    for (const s of ['l', 'r']) {       // for a camera facing the Poser, their LEFT appears on screen-right
-      const p = (s === 'r') !== !!sw ? 'left_' : 'right_';
+    const side = this.sides(kp);
+    for (const s of ['l', 'r']) {       // 'r' = the chain on screen-right; side-on poses also try the swap (sw)
+      const p = side[(s === 'r') !== !!sw ? 'r' : 'l'];
       seg(s + 'ua', p + 'shoulder', p + 'elbow'); seg(s + 'fa', p + 'elbow', p + 'wrist');
       seg(s + 'th', p + 'hip', p + 'knee'); seg(s + 'sh', p + 'knee', p + 'ankle');
     }
@@ -219,8 +249,13 @@ const Cam = {
     if (rate) rate.textContent = !best || !this.target ? '' : best.pen < 1 ? 'HANDS TOGETHER!' : this.since ? 'HOLD IT... ' + Math.max(0, (HOLD_MS - (now - this.since)) / 1000).toFixed(1) + 's'
       : this.score >= 85 ? 'PERFECT!' : good ? 'GREAT!' : this.score >= 50 ? 'OK' : 'KEEP GOING';
   },
-  paintLive(best) {     // draws the real limb angles on top of the silhouette, coloured by accuracy
+  paintLive(best) {     // tints each silhouette limb by how close the player's matching limb is, and draws their real limbs on top
     const g = $('#live'); if (!g) return;
+    const svg = g.ownerSVGElement;
+    svg.querySelectorAll('[data-seg]').forEach(el => {   // id = figure index + limb key, e.g. "0lua"
+      const r = best && best.per[+el.dataset.seg[0]], d = r && r.d[el.dataset.seg.slice(1)];
+      el.style.fill = d == null ? '' : TINT(d);
+    });
     if (!best || !this.fk) { g.innerHTML = ''; return; }
     const line = (a, b, d) => { const [col, dash] = COL(d), xy = `x1="${a[0]}" y1="${a[1]}" x2="${b[0]}" y2="${b[1]}"`;
       return `<line ${xy} stroke="#1E0C08" stroke-width=".04"/><line ${xy} stroke="${col}" stroke-width=".022" stroke-linecap="butt"${dash ? ` stroke-dasharray="${dash}"` : ''}/>`; };
@@ -239,13 +274,21 @@ const Cam = {
   },
   draw(people) {        // skeleton window (video is shown only on the setup screen)
     const c = $('#skel'); if (!c) return;
-    const x = c.getContext('2d'), W = c.width, H = c.height, vw = this.video.videoWidth, vh = this.video.videoHeight;
-    x.fillStyle = '#3B2926'; x.fillRect(0, 0, W, H);
-    if (this.preview) { x.save(); if (this.mirror) { x.translate(W, 0); x.scale(-1, 1); } x.drawImage(this.video, 0, 0, W, H); x.restore(); }
-    x.lineWidth = 4; x.lineCap = 'round';
-    people.forEach((k, i) => {
+    const vw = this.video.videoWidth, vh = this.video.videoHeight; if (!vw || !vh) return;
+    // match the canvas's pixel buffer to its on-screen size so it isn't blurry; keep the aspect ratio its markup gave it
+    const dpr = window.devicePixelRatio || 1, box = c.getBoundingClientRect();
+    c.dataset.ar = c.dataset.ar || c.height / c.width;
+    if (box.width) { const w = Math.round(box.width * dpr), h = Math.round(w * c.dataset.ar); if (Math.abs(c.width - w) > 2) { c.width = w; c.height = h; } }
+    const x = c.getContext('2d'), W = c.width, H = c.height;
+    // fit the whole frame without stretching ("contain"), so players can see exactly where the camera's edges are
+    const s = Math.min(W / vw, H / vh), ox = (W - vw * s) / 2, oy = (H - vh * s) / 2;
+    x.fillStyle = '#3A1A0E'; x.fillRect(0, 0, W, H);
+    if (this.preview) { x.save(); if (this.mirror) { x.translate(W, 0); x.scale(-1, 1); } x.drawImage(this.video, ox, oy, vw * s, vh * s); x.restore(); }
+    else { x.strokeStyle = 'rgb(247 215 181 / .35)'; x.lineWidth = Math.max(1, dpr); x.strokeRect(ox + .5, oy + .5, vw * s - 1, vh * s - 1); }
+    x.lineWidth = Math.max(2.5, W / 120); x.lineCap = 'round';
+    people.forEach((k, i) => {   // keypoints are already mirrored in arrange(), so they only need scaling and offsetting
       x.strokeStyle = ['#6FE3B0', '#FFD166'][i % 2]; x.beginPath();
-      for (const [a, b] of EDGES) if (k[a] && k[b] && k[a].score > .3 && k[b].score > .3) { x.moveTo(k[a].x / vw * W, k[a].y / vh * H); x.lineTo(k[b].x / vw * W, k[b].y / vh * H); }
+      for (const [a, b] of EDGES) if (k[a] && k[b] && k[a].score > .3 && k[b].score > .3) { x.moveTo(ox + k[a].x * s, oy + k[a].y * s); x.lineTo(ox + k[b].x * s, oy + k[b].y * s); }
       x.stroke();
     });
   },
