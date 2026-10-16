@@ -3,13 +3,28 @@ const app = $('#app');
 const esc = s => s.replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 // Exactly the 10 emojis from the plan. The third value 1 means only the game triggers it.
 const EMO = [
-  ['🎯', 'Nailed It', 1], ['🔥', 'Getting Hot'], ['❄️', 'Getting Cold'], ['👀', 'Almost'], ['😵', 'Confusion'],
-  ['🤣', 'Funny Fail'], ['🤝', 'Teamwork'], ['⏱️', "Time's Up", 1], ['🏆', 'Level Cleared', 1], ['🧘', 'Stretch Break'],
+  ['🎯', 'Nailed it', 1], ['🔥', 'Getting hot'], ['❄️', 'Getting cold'], ['👀', 'Almost'], ['😵', 'Confusion'],
+  ['🤣', 'Funny fail'], ['🤝', 'Teamwork'], ['⏱️', "Time's up", 1], ['🏆', 'Level cleared', 1], ['🧘', 'Stretch break'],
 ];
 const TIERS = ['easy', 'medium', 'hard'];
-const STRETCH = ['Reach up high', 'Roll your shoulders', 'Gentle side stretch left', 'Gentle side stretch right'];
+const STRETCH = ['Reach up', 'Roll shoulders', 'Stretch left', 'Stretch right'];
 let G, timer;
 
+function showErr(m) {
+  if (!$('#err')) document.body.insertAdjacentHTML('beforeend', '<div id="err" role="alert"></div>');
+  $('#err').textContent = 'Something went wrong: ' + m;
+}
+window.addEventListener('error', e => showErr(e.message));
+window.addEventListener('unhandledrejection', e => showErr((e.reason && e.reason.message) || e.reason));
+if (typeof POSES_VERSION === 'undefined' || typeof CAM_VERSION === 'undefined' || POSES_VERSION !== 4 || CAM_VERSION !== 4)
+  showErr('some files are out of date. Replace ALL files in the folder, then hard refresh (Ctrl+Shift+R).');
+
+// Every screen goes through render(): sets the page title and moves focus to the heading so keyboard and screen-reader users know where they are.
+function render(html, title) {
+  app.innerHTML = html;
+  document.title = title ? 'Poser · ' + title : 'Poser';
+  const h = app.querySelector('h1'); if (h) { h.tabIndex = -1; h.focus({ preventScroll: true }); }
+}
 function goFull() { try { const r = document.documentElement.requestFullscreen(); if (r && r.catch) r.catch(() => {}); } catch (e) {} }
 function toggleFull() { document.fullscreenElement ? document.exitFullscreen() : goFull(); }
 
@@ -39,72 +54,92 @@ function parts(p) {
 }
 function figure(p) {   // duo poses carry p.figs: two figures drawn at 80% size
   const body = p.figs ? p.figs.map(f => parts({ sc: .8, ...f })).join('') : parts(p);
-  return `<svg viewBox="0 0 1 1" class="sil" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><g opacity=".85">${body}</g><g id="live"></g></svg>`;
+  return `<svg viewBox="0 0 1 1" class="sil" role="img" aria-label="Pose to describe" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><g>${body}</g><g id="live"></g></svg>`;
 }
 
-// ---------- SCREENS ----------
+// ---------- WELCOME ----------
+function welcome() {
+  clearInterval(timer); Cam.stop();
+  const still = !!(window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches);   // reduced motion: no autoplay
+  render(`<section class="welcome">
+    <h1 class="sr">Poser</h1>
+    <video id="wv" src="welcome.mp4" poster="poster.jpg" ${still ? '' : 'autoplay'} muted loop playsinline aria-hidden="true" tabindex="-1"></video>
+    <button class="btn primary xl start" onclick="home()">Start</button>
+    <div class="vctl"><button class="btn" id="pp" onclick="wvPlay()">${still ? 'Play' : 'Pause'}</button><button class="btn" id="snd" onclick="wvSound()">Sound off</button></div></section>`, '');
+  $('.welcome').addEventListener('click', e => { if (!e.target.closest('button')) home(); });
+  $('.start').focus();
+  if (!still) { const p = $('#wv').play(); if (p && p.catch) p.catch(() => { $('#pp').textContent = 'Play'; }); }
+}
+function wvPlay() { const v = $('#wv'); if (v.paused) { v.play(); $('#pp').textContent = 'Pause'; } else { v.pause(); $('#pp').textContent = 'Play'; } }
+function wvSound() { const v = $('#wv'); v.muted = !v.muted; $('#snd').textContent = v.muted ? 'Sound off' : 'Sound on'; }
+
+// ---------- SETUP ----------
 function home() {
   clearInterval(timer); Cam.stop();
-  app.innerHTML = `<section class="home"><h1>Pose Relay</h1><p class="sub">Human Tetris meets Charades. Wellness edition.</p>
-    <div class="grid2"><div><h3>Players (3 to 7)</h3><div id="plist"></div>
-      <div class="row"><button class="ghost" onclick="remP()">− Remove</button><button class="ghost" onclick="addP()">+ Add player</button></div></div>
-    <div><label>Mode <select id="mode"><option value="60">Classic (60s)</option><option value="25">Rapid Fire (25s)</option><option value="0">Chill (no timer)</option></select></label>
-    <label>Hardest level <select id="diff"><option value="0">Easy</option><option value="1">Medium</option><option value="2" selected>Hard</option></select></label>
-    <label class="chk"><input type="checkbox" id="safe" checked> Safe Mode (removes balance and floor-risk poses)</label>
-    <label class="chk"><input type="checkbox" id="seat"> Seated poses only</label>
-    <label>Play style <select id="style"><option value="1">Solo Poser</option><option value="2">Duo Posers (two pose together)</option></select></label>
-    <label class="chk"><input type="checkbox" id="split" checked> Split roles: each Describer controls one body zone</label>
-    <label class="chk"><input type="checkbox" id="wl" checked> Word limit: more players, fewer words each</label></div></div>
-    <div class="row"><button class="bigbtn" onclick="start(true)">📷 Start with camera</button><button class="bigbtn alt" onclick="start(false)">Start without camera</button></div>
-    <p class="sub small">Camera mode reads a skeleton only. Nothing is recorded or uploaded. Camera judging works in Solo mode only.</p>
-    <button class="ghost" onclick="rulebook(home)">How to play</button></section>`;
+  render(`<section class="screen"><h1 class="display">Poser</h1>
+    <div class="cols">
+      <fieldset class="panel"><legend>Players</legend><div id="plist"></div>
+        <div class="actions"><button class="btn text" onclick="remP()">− Remove</button><button class="btn text" onclick="addP()">+ Add</button></div></fieldset>
+      <fieldset class="panel"><legend>Settings</legend>
+        <div class="field"><label for="style">Style</label><select id="style"><option value="1">Solo</option><option value="2">Duo</option></select></div>
+        <div class="field"><label for="mode">Timer</label><select id="mode"><option value="60">Classic 60s</option><option value="25">Rapid 25s</option><option value="0">Chill</option></select></div>
+        <div class="field"><label for="diff">Difficulty</label><select id="diff"><option value="0">Easy</option><option value="1">Medium</option><option value="2" selected>Hard</option></select></div>
+        <label class="check"><input type="checkbox" id="safe" checked><span>Safe mode</span></label>
+        <label class="check"><input type="checkbox" id="seat"><span>Seated only</span></label>
+        <label class="check"><input type="checkbox" id="split" checked><span>Split roles</span></label>
+        <label class="check"><input type="checkbox" id="wl" checked><span>Word limit</span></label></fieldset>
+    </div>
+    <div class="actions"><button class="btn primary xl" onclick="start(true)">Play with camera</button><button class="btn xl" onclick="start(false)">Play without camera</button></div>
+    <button class="btn text" onclick="rulebook()">How to play</button></section>`, 'Setup');
   ['Alex', 'Sam', 'Jo', 'Riley'].forEach(addP);
 }
-function addP(n) { if (document.querySelectorAll('.pn').length >= 7) return; const i = document.createElement('input'); i.className = 'pn'; i.maxLength = 14; i.placeholder = typeof n === 'string' ? n : 'Player ' + (document.querySelectorAll('.pn').length + 1); i.value = typeof n === 'string' ? n : ''; $('#plist').appendChild(i); }
+function addP(n) {
+  const l = document.querySelectorAll('.pn'); if (l.length >= 7) return;
+  const i = document.createElement('input'); i.type = 'text'; i.className = 'pn'; i.maxLength = 14;
+  i.setAttribute('aria-label', 'Player ' + (l.length + 1)); i.placeholder = 'Player ' + (l.length + 1); if (typeof n === 'string') i.value = n;
+  $('#plist').appendChild(i);
+}
 function remP() { const l = document.querySelectorAll('.pn'); if (l.length > 3) l[l.length - 1].remove(); }
 
-function rulebook(back) {
-  app.innerHTML = `<section class="card"><h2>How to play</h2><ol>
-    <li>One <b>Poser</b> turns their back to the screen. Everyone else is a <b>Describer</b> and can see the silhouette.</li>
-    <li>Describers use <b>words only</b>: body parts and directions. No touching, no mimicking, no pose names.</li>
-    <li>The Poser says "Locked!" (or anyone presses Lock). Describers judge: Match or Not yet. With the camera on, the game locks by itself when the pose is held.</li>
-    <li>Match: level up, same Poser continues. Time runs out: the next player becomes Poser.</li>
-    <li><b>Split roles:</b> each Describer controls one body zone and stays silent about the rest. <b>Word limit:</b> the more Describers, the fewer words each may say per instruction (1 Describer: 12 words, 6 Describers: 3). Anyone can call a foul (−20 points).</li>
-    <li><b>Duo mode:</b> two Posers pose together, one on the left and one on the right as the Describers see them.</li>
-    <li>Emojis give feedback only, never instructions. 🧘 triggers a 20-second Stretch Break.</li>
-    <li>Safety: no jumping, flipping or forced balance on hard floors. Left and right are mirrored on purpose. Good luck!</li></ol>
-    <h3>The 10 emojis</h3><p class="emos">${EMO.map(e => `<span>${e[0]} ${e[1]}</span>`).join('')}</p>
-    <button onclick="(${back.name})()">Back</button></section>`;
+function rulebook() {
+  render(`<section class="screen narrow"><h1 class="headline">How to play</h1>
+    <ol class="rules-list"><li>The Poser faces away from the screen.</li><li>Describers see the pose and guide with words only.</li>
+      <li>Lock it, then judge: Match or Not yet.</li><li>Split roles: each Describer controls one body zone.</li>
+      <li>Word limit: more Describers, fewer words each.</li><li>Duo: two Posers, left and right as the Describers see them.</li><li>A foul costs 20 points.</li></ol>
+    <h2 class="label">Emojis</h2><ul class="emos">${EMO.map(e => `<li class="chip">${e[0]} ${e[1]}</li>`).join('')}</ul>
+    <button class="btn primary" onclick="home()">Back</button></section>`, 'How to play');
 }
 
 function start(cam) {
   const names = [...document.querySelectorAll('.pn')].map(i => i.value.trim() || i.placeholder), duo = $('#style').value === '2';
   G = {
     players: names.map(n => ({ n })), limit: +$('#mode').value, max: +$('#diff').value, safe: $('#safe').checked,
-    seated: $('#seat').checked, cam: cam && !duo, duo, split: $('#split').checked, wl: $('#wl').checked,
+    seated: $('#seat').checked, cam, duo, split: $('#split').checked, wl: $('#wl').checked,
     poser: 0, level: 1, rounds: 0, score: 0, used: [], stretch: false,
   };
   goFull();
-  if (G.cam) camSetup(); else ready(cam && duo ? 'Camera judging is Solo-only, so the Describers judge.' : 'Get ready!');
+  if (G.cam) camSetup(); else ready('');
 }
 
 async function camSetup() {
-  app.innerHTML = `<section class="card"><h2>Camera setup</h2>
-    <p>Point the camera at the Poser so their whole body, head to feet, is in view. Only a skeleton is read; nothing is recorded or uploaded.</p>
-    <canvas id="skel" width="480" height="360" class="camprev"></canvas>
-    <p id="camstatus" class="sub">Starting...</p>
-    <label>Camera <select id="camsel"></select></label>
-    <label class="chk"><input type="checkbox" id="mirror"> Camera sees the Poser's back (flip left/right)</label>
-    <div class="row"><button onclick="ready('Get ready!')">Start game</button><button class="ghost" onclick="G.cam=false;ready('Get ready!')">Play without camera</button></div></section>`;
+  const n = G.duo ? 2 : 1;
+  render(`<section class="screen narrow"><h1 class="headline">Camera</h1>
+    <canvas id="skel" width="480" height="360" class="camprev" role="img" aria-label="Camera preview"></canvas>
+    <p id="track" class="rules" role="status"></p><p id="camstatus" class="muted" role="status">Loading...</p>
+    <div class="field" style="width:100%"><label for="camsel">Camera</label><select id="camsel"></select></div>
+    <label class="check"><input type="checkbox" id="mirror"><span>Flip left/right</span></label>
+    <div class="actions"><button class="btn primary" id="go" disabled onclick="ready('')">Start</button><button class="btn" onclick="G.cam=false;Cam.stop();ready('')">No camera</button></div></section>`, 'Camera');
   try {
-    await Cam.init(t => $('#camstatus').textContent = t);
+    await Cam.init(t => { const s = $('#camstatus'); if (s) s.textContent = t; }, n);
+    if (!$('#camstatus')) { Cam.stop(); return; }
     Cam.preview = true; Cam.run();
-    $('#camstatus').textContent = 'Camera on. Step back until the blue skeleton covers the whole body.';
+    $('#camstatus').textContent = `Ready (${Cam.det.name}). Show everyone head to toe.`;
+    $('#go').disabled = false;
     const cams = await Cam.cameras();
     $('#camsel').innerHTML = cams.map((c, i) => `<option value="${c.deviceId}">${esc(c.label || 'Camera ' + (i + 1))}</option>`).join('');
     $('#camsel').onchange = e => Cam.open(e.target.value);
-    $('#mirror').onchange = e => Cam.mirror = e.target.checked;
-  } catch (e) { G.cam = false; $('#camstatus').textContent = 'Camera unavailable (' + e.message + '). You can still play with human judging.'; }
+    $('#mirror').checked = Cam.mirror; $('#mirror').onchange = e => Cam.mirror = e.target.checked;
+  } catch (e) { G.cam = false; Cam.stop(); const s = $('#camstatus'); if (s) s.textContent = 'Camera unavailable: ' + e.message + ' You can play without it.'; }
 }
 
 function pick() {
@@ -113,6 +148,7 @@ function pick() {
   let pool = POSES.filter(p => ok(p) && p.d === TIERS[tier] && !G.used.includes(p.id));
   if (!pool.length) pool = POSES.filter(p => ok(p) && TIERS.indexOf(p.d) <= tier && !G.used.includes(p.id));
   if (!pool.length) { G.used = []; pool = POSES.filter(p => ok(p) && TIERS.indexOf(p.d) <= tier); }
+  if (!pool.length) pool = POSES;
   const p = pool[Math.floor(Math.random() * pool.length)];
   G.used.push(p.id); return p;
 }
@@ -120,8 +156,8 @@ function pick() {
 // ---------- CONFLICT RULES: split roles + word limits ----------
 // Body zones by number of Describers (shuffled every round). Left/Right = the Poser's own left/right (= the screen's right/left).
 const ZONES = {
-  1: ['Everything'], 2: ['Arms', 'Legs, torso and head'], 3: ['Arms', 'Legs', 'Torso and head'],
-  4: ['Left arm', 'Right arm', 'Legs', 'Torso and head'], 5: ['Left arm', 'Right arm', 'Left leg', 'Right leg', 'Torso and head'],
+  1: ['Everything'], 2: ['Arms', 'Legs, torso, head'], 3: ['Arms', 'Legs', 'Torso, head'],
+  4: ['Left arm', 'Right arm', 'Legs', 'Torso, head'], 5: ['Left arm', 'Right arm', 'Left leg', 'Right leg', 'Torso, head'],
   6: ['Left arm', 'Right arm', 'Left leg', 'Right leg', 'Torso', 'Head'],
 };
 const WORDS = [0, 12, 8, 6, 5, 4, 3];   // max words per instruction, indexed by number of Describers
@@ -129,66 +165,81 @@ const posers = () => G.duo ? [G.poser, (G.poser + 1) % G.players.length] : [G.po
 const posNames = () => posers().map(i => esc(G.players[i].n)).join(' + ');
 function makeRoster() {
   const ps = posers(), ds = G.players.filter((_, i) => !ps.includes(i)), zones = ZONES[ds.length].slice().sort(() => Math.random() - .5);
-  G.roster = ds.map((p, k) => ({ n: p.n, z: G.split ? zones[k] : 'Anything' }));
-  G.W = G.wl ? WORDS[ds.length] : 0;
+  G.roster = ds.map((p, k) => ({ n: p.n, z: G.split ? zones[k] : '' })); G.W = G.wl ? WORDS[ds.length] : 0;
 }
-const rulesLine = () => ((G.split ? 'Only talk about your own body zone. ' : '') + (G.W ? `Max ${G.W} words each time you speak.` : '')) || 'Describe freely.';
-const chips = () => G.roster.map(r => `<span class="chip"><b>${esc(r.n)}</b>${G.split ? ' controls: ' + r.z : ''}</span>`).join('');
+const rulesLine = () => ((G.split ? 'Stay in your zone. ' : '') + (G.W ? `${G.W} words max.` : '')) || 'Free talk.';
+const chips = () => `<ul class="chips">${G.roster.map(r => `<li class="chip"><b>${esc(r.n)}</b>${r.z ? ' · ' + r.z : ''}</li>`).join('')}</ul>`;
 
+// ---------- ROUND ----------
 function ready(msg) {
   clearInterval(timer); if (G.cam) Cam.preview = false; makeRoster();
-  const ps = posers();
-  app.innerHTML = `<section class="card center"><p class="sub">${msg}</p>
-    <h2>${posNames()} ${G.duo ? 'are the Posers' : 'is the Poser'}</h2>
-    <p>${G.duo ? `${esc(G.players[ps[0]].n)} stands on the LEFT and ${esc(G.players[ps[1]].n)} on the RIGHT, as the Describers see them.<br>` : ''}${G.duo ? 'Posers' : 'Poser'}: turn your back to the screen.</p>
-    <h3>Describers</h3><div class="chips">${chips()}</div>
-    <p class="rules">${rulesLine()}${G.split ? "<br><small>Left and right mean the Poser's own left and right (the screen's right is the Poser's left).</small>" : ''}</p>
-    <p class="big">Level ${G.level}</p>
-    <div class="row"><button class="bigbtn" onclick="play()">Show pose and start</button><button class="ghost" onclick="home()">End game</button></div></section>`;
+  const ps = posers(), nm = i => esc(G.players[i].n);
+  const who = G.duo ? `${nm(ps[0])} <small>left</small> + ${nm(ps[1])} <small>right</small>` : nm(ps[0]);
+  render(`<section class="screen center">${msg ? `<p class="banner" role="status">${msg}</p>` : ''}
+    <p class="label">${G.duo ? 'Posers' : 'Poser'}</p><h1 class="headline">${who}</h1>
+    <h2 class="label">Describers</h2>${chips()}
+    <p class="rules">${rulesLine()}</p>${G.split ? "<p class=\"hint\">Left and right are the Poser's own.</p>" : ''}
+    <p class="level">Level ${G.level}</p>
+    <div class="actions"><button class="btn primary xl" onclick="play()">Show pose</button><button class="btn text" onclick="home()">End game</button></div></section>`, 'Ready');
 }
 
 function play() {
   G.pose = pick(); G.t = G.limit;
-  app.innerHTML = `<section class="stage"><div class="top"><span>${G.duo ? 'Posers' : 'Poser'}: <b>${posNames()}</b></span><span>Level ${G.level}</span>
-    <span id="score">Score ${G.score}</span><span id="time" class="time">${G.limit ? G.t : '∞'}</span></div>
-    <div class="strip"><div class="chips">${chips()}</div><div class="rules">${rulesLine()}</div></div>
+  render(`<section class="stage"><h1 class="sr">Level ${G.level}</h1>
+    <header class="hud"><div class="stat"><span class="label">${G.duo ? 'Posers' : 'Poser'}</span><span class="val">${posNames()}</span></div>
+      <div class="stat"><span class="label">Level</span><span class="val">${G.level}</span></div>
+      <div class="stat"><span class="label">Score</span><span class="val" id="score">${G.score}</span></div>
+      <div class="stat"><span class="label">Time</span><span class="time" id="time" role="timer">${G.limit ? G.t : '∞'}</span></div></header>
+    <div class="strip">${chips()}<p class="rules">${rulesLine()}</p></div>
     <div class="mid">${figure(G.pose)}</div>
-    ${G.cam ? '<div class="ai"><canvas id="skel" width="200" height="150"></canvas><div id="track"></div><div class="meter"><i id="meter-fill"></i></div><div id="rate"></div></div>' : ''}
-    <div class="bar">${EMO.map((e, i) => `<button class="emo" ${e[2] ? 'disabled' : ''} title="${e[1]}" onclick="react(${i})">${e[0]}</button>`).join('')}</div>
-    <div class="row"><button onclick="lock()">🔒 Locked!</button><button class="ghost" onclick="foul()">Call foul (−20)</button><button class="ghost" onclick="home()">End game</button></div>
-    <div id="judge" class="judge" hidden><h2>Does it match?</h2><p id="judge-msg"></p><div class="row"><button class="bigbtn" onclick="match()">🎯 Match</button><button class="ghost" onclick="noMatch()">Not yet</button></div></div></section>`;
+    ${G.cam ? '<div class="ai"><canvas id="skel" width="200" height="150" role="img" aria-label="Camera skeleton"></canvas><p id="track" class="label"></p><div class="meter" aria-hidden="true"><i id="meter-fill"></i></div><p id="rate"></p></div>' : ''}
+    <div class="bar" role="group" aria-label="Reactions">${EMO.map((e, i) => `<button class="btn emo" aria-label="${e[1]}" ${e[2] ? 'disabled' : ''} onclick="react(${i})">${e[0]}</button>`).join('')}</div>
+    <div class="actions"><button class="btn primary" id="lockbtn" onclick="lock()">Lock</button><button class="btn" onclick="foul()">Foul −20</button><button class="btn text" onclick="home()">End game</button></div>
+    <div id="judge" class="scrim" hidden><div class="dialog" role="dialog" aria-modal="true" aria-labelledby="jt" onkeydown="if(event.key==='Escape')noMatch()">
+      <h2 class="headline" id="jt">Match?</h2><p id="judge-msg" class="rules"></p>
+      <div class="actions"><button class="btn primary xl" onclick="match()">Match</button><button class="btn xl" onclick="noMatch()">Not yet</button></div></div></div></section>`, 'Round');
   if (G.limit) timer = setInterval(tick, 1000);
   if (G.cam) { Cam.preview = false; Cam.watch(G.pose, lock); Cam.run(); }
 }
-function foul() { G.score = Math.max(0, G.score - 20); $('#score').textContent = 'Score ' + G.score; float('FOUL −20', 40); }
 function tick() { G.t--; $('#time').textContent = G.t; $('#time').classList.toggle('low', G.t <= 10); if (G.t <= 0) timeUp(); }
 
 function float(e, x) {
-  const f = document.createElement('div'); f.className = 'float'; f.textContent = e; f.style.left = x + '%';
+  const f = document.createElement('div'); f.className = 'float'; f.textContent = e; f.style.left = x + '%'; f.setAttribute('aria-hidden', 'true');
   document.body.appendChild(f); setTimeout(() => f.remove(), 2000);
 }
 function react(i) { if (EMO[i][0] === '🧘') G.stretch = true; float(EMO[i][0], 10 + Math.random() * 80); }
 function fire(e) { float(e, 45); }
+function foul() { G.score = Math.max(0, G.score - 20); $('#score').textContent = G.score; float('−20', 45); }
 
 function lock() {
-  clearInterval(timer); $('#judge').hidden = false;
-  if (G.cam) { $('#judge-msg').textContent = `AI score: ${Math.round(Cam.score)}% (needs ${Cam.thr}%). You have the final say.`; Cam.target = null; }
+  clearInterval(timer); const j = $('#judge'); j.hidden = false;
+  [...$('.stage').children].forEach(c => { if (c !== j) c.setAttribute('inert', ''); });   // modal: nothing behind the dialog is reachable
+  if (G.cam) { $('#judge-msg').textContent = `AI ${Math.round(Cam.score)}% · needs ${Cam.thr}%`; Cam.target = null; }
+  j.querySelector('.primary').focus();
 }
-function noMatch() { $('#judge').hidden = true; if (G.limit) timer = setInterval(tick, 1000); if (G.cam) Cam.watch(G.pose, lock); }
+function noMatch() {
+  $('#judge').hidden = true; [...$('.stage').children].forEach(c => c.removeAttribute('inert'));
+  if (G.limit) timer = setInterval(tick, 1000);
+  if (G.cam) Cam.watch(G.pose, lock);
+  $('#lockbtn').focus();
+}
 function match() {
   Cam.target = null; G.score += 100 * G.level + (G.limit ? G.t * 2 : 0); G.rounds++;
-  fire('🎯'); fire('🏆'); G.level++; next('Level cleared!');
+  fire('🎯'); fire('🏆'); G.level++; next('Level cleared');
 }
 function timeUp() {
-  clearInterval(timer); Cam.target = null; fire('⏱️'); G.rounds++; G.poser = (G.poser + (G.duo ? 2 : 1)) % G.players.length; next("Time's up! Next Poser.");
+  clearInterval(timer); Cam.target = null; fire('⏱️'); G.rounds++; G.poser = (G.poser + (G.duo ? 2 : 1)) % G.players.length; next("Time's up");
 }
 function next(msg) { if (G.stretch || G.rounds % 4 === 0) stretchBreak(msg); else ready(msg); }
 
 function stretchBreak(msg) {
   G.stretch = false; fire('🧘'); let t = 20;
-  const draw = () => app.innerHTML = `<section class="card center"><h2>🧘 Stretch Break</h2><p class="big">${t}</p><p>${STRETCH[Math.min(3, Math.floor((20 - t) / 5))]}</p></section>`;
-  draw(); timer = setInterval(() => { t--; if (t <= 0) { clearInterval(timer); ready(msg); } else draw(); }, 1000);
+  render(`<section class="screen center"><h1 class="headline">Stretch</h1><p class="display" id="st-n">20</p><p class="title" id="st-t" aria-live="polite">${STRETCH[0]}</p></section>`, 'Stretch');
+  timer = setInterval(() => {
+    t--; if (t <= 0) { clearInterval(timer); ready(msg); return; }
+    $('#st-n').textContent = t; $('#st-t').textContent = STRETCH[Math.min(3, Math.floor((20 - t) / 5))];
+  }, 1000);
 }
 
-document.body.insertAdjacentHTML('beforeend', '<button id="fs" title="Full screen" onclick="toggleFull()">⛶</button>');
-home();
+document.body.insertAdjacentHTML('beforeend', '<button id="fs" class="btn" aria-label="Toggle full screen" onclick="toggleFull()"><svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="3"><path d="M3 9V3h6M15 3h6v6M21 15v6h-6M9 21H3v-6"/></svg></button>');
+welcome();
