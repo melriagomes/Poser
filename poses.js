@@ -1,3 +1,4 @@
+const POSES_VERSION = 4;
 // POSE DATA (original stick-figure silhouettes inspired by yoga poses). Add new poses here only.
 // Angles in degrees: 0 = down, 90 = toward screen-right, -90 = toward screen-left, 180 = up.
 // a = arms {l,r}: [upper arm, forearm]   lg = legs {l,r}: [thigh, shin]
@@ -25,3 +26,24 @@ const POSES = [
   { id: 'dancer2',  d: 'hard', safe: false, seated: false, prof: true, lean: -15, a: { r: [100, 100], l: [-90, -90] }, lg: { l: [0, 0], r: [120, 170] } },
   { id: 'splits',   d: 'hard', safe: false, seated: false, at: [.5, .78], lean: -15, a: { r: [150, 160], l: [-45, -60] }, lg: { l: [-90, -90], r: [90, 90] } },
   { id: 'sidePlank', d: 'hard', safe: false, seated: false, prof: true, at: [.6, .52], lean: -53, a: { r: [0, 0], l: [180, 180] }, lg: { l: [53, 53], r: [53, 53] } },
+  { id: 'warrior3', d: 'hard', safe: false, seated: false, prof: true, at: [.4, .45], lean: 90, a: { r: [90, 90], l: [90, 90] }, lg: { l: [0, 0], r: [-90, -90] } },
+  { id: 'headstand', d: 'hard', safe: false, seated: false, at: [.5, .42], lean: 180, a: { r: [-25, 25], l: [25, -25] }, lg: { r: [180, 180], l: [180, 180] } },
+  { id: 'crow',     d: 'hard', safe: false, seated: false, prof: true, at: [.45, .45], lean: 110, a: { r: [10, -10], l: [10, -10] }, lg: { r: [75, -110], l: [75, -110] } },
+  { id: 'bow',      d: 'hard', safe: false, seated: false, prof: true, at: [.5, .72], lean: 45, a: { r: [-140, -110], l: [-130, -100] }, lg: { r: [-120, 190], l: [-120, 190] } },
+  // DUO POSES (n: 2). figs[0] stands on screen-LEFT, figs[1] on screen-RIGHT; both are drawn at 80% size.
+  { id: 'holdHands',  d: 'easy', n: 2, touch: [[0, 'r', 1, 'l']], safe: true, seated: true, figs: [{ at: [.32, .6], a: { r: [20, 40] } }, { at: [.68, .6], a: { l: [-20, -40] } }] },
+  { id: 'doubleFive', d: 'easy', n: 2, touch: [[0, 'r', 1, 'l']], safe: true, seated: true, figs: [{ at: [.32, .6], a: { r: [152, 152], l: [-150, -150] } }, { at: [.68, .6], a: { l: [-152, -152], r: [150, 150] } }] },
+  { id: 'reach',      d: 'easy', n: 2, touch: [[0, 'r', 1, 'l']], safe: true, seated: true, figs: [{ at: [.24, .6], a: { r: [90, 90] } }, { at: [.76, .6], a: { l: [-90, -90] } }] },
+  { id: 'cheer',      d: 'easy', n: 2, safe: true, seated: true, figs: [{ at: [.3, .6], a: { r: [180, 180], l: [-180, -180] }, lg: { r: [25, 25], l: [-25, -25] } }, { at: [.7, .6], a: { r: [180, 180], l: [-180, -180] }, lg: { r: [25, 25], l: [-25, -25] } }] },
+  { id: 'tent',       d: 'medium', n: 2, touch: [[0, 'r', 1, 'l']], safe: true, seated: false, figs: [{ at: [.3, .62], lean: 20, a: { r: [164, 164], l: [-60, -60] } }, { at: [.7, .62], lean: -20, a: { l: [-164, -164], r: [60, 60] } }] },
+  { id: 'duoDance',   d: 'medium', n: 2, safe: true, seated: false, figs: [
+      { at: [.3, .6], lean: 8, a: { r: [170, 170], l: [-60, -30] }, lg: { r: [40, 0], l: [-20, -20] } },
+      { at: [.7, .6], lean: -8, a: { l: [-170, -170], r: [60, 30] }, lg: { l: [-40, 0], r: [20, 20] } }] },
+  { id: 'duoWarrior', d: 'medium', n: 2, touch: [[0, 'r', 1, 'l']], safe: true, seated: false, figs: [
+      { at: [.24, .6], a: { r: [90, 90], l: [-175, -175] }, lg: { r: [50, 0], l: [-30, -30] } },
+      { at: [.76, .6], a: { l: [-90, -90], r: [175, 175] }, lg: { l: [-50, 0], r: [30, 30] } }] },
+  { id: 'duoBend',    d: 'medium', n: 2, safe: true, seated: false, figs: [{ at: [.3, .6], lean: 28, a: { r: [145, 145], l: [-40, 46] } }, { at: [.7, .6], lean: -28, a: { l: [-145, -145], r: [40, -46] } }] },
+  { id: 'twinTrees',  d: 'hard', n: 2, touch: [[0, 'r', 1, 'l']], safe: false, seated: false, figs: [
+      { at: [.32, .6], a: { r: [152, 152], l: [-150, -150] }, lg: { l: [-50, 105], r: [0, 0] } },
+      { at: [.68, .6], a: { l: [-152, -152], r: [150, 150] }, lg: { r: [50, -105], l: [0, 0] } }] },
+];
